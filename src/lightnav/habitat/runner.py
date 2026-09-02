@@ -74,7 +74,7 @@ class HabitatEvalConfig:
     zmq_timeout_ms: int = 600000
     verbose: bool = False
     # Visualisation (docs/VISUALIZATION.md). `save_video` needs the `video` extra and writes
-    # <video_dir>/<habitat_episode_id>.mp4 with one frame per policy step;
+    # <video_dir>/<habitat_episode_id>_suc=<0|1>.mp4 with one frame per policy step;
     # an empty video_dir defaults to <output_dir>/videos. `record_dir`
     # additionally records the raw episodes in the layout `lightnav-render` reads.
     save_video: bool = False
@@ -519,10 +519,15 @@ class _EvalVisualizer:
         )
         self._write(frame)
 
-    def end_episode(self) -> str | None:
+    def end_episode(self, success: bool | None = None) -> str | None:
         """Close the episode; return its path relative to the evaluation root if written."""
         video_rel: str | None = None
         if self._video is not None:
+            if success is not None:
+                success_value = int(bool(success))
+                final_name = f"{self._video.path.stem}_suc={success_value}.mp4"
+                self._video.path = self._video.path.with_name(final_name)
+                self._video_rel = (Path(_VIDEOS_SUBDIR) / final_name).as_posix()
             written = None
             if self._video_failed:
                 self._video.abort()
@@ -624,7 +629,7 @@ def run_habitat_eval(
         print(f"  Language filter: {sorted(lang_filter)}")
     if cfg.save_video:
         videos_dir = cfg.video_dir or os.path.join(output_dir, _VIDEOS_SUBDIR)
-        print(f"  Videos:   {videos_dir}/<episode_id>.mp4 ({cfg.video_fps} fps, one frame per step)")
+        print(f"  Videos:   {videos_dir}/<episode_id>_suc=<0|1>.mp4 ({cfg.video_fps} fps, one frame per step)")
     if viz is not None and viz.record_run_dir is not None:
         print(f"  Record:   {viz.record_run_dir}")
     print(f"{sep}\n", flush=True)
@@ -728,7 +733,7 @@ def run_habitat_eval(
                     viz.final_frame(obs["rgb"], step=step + 1, instruction=instruction)
             finally:
                 if viz is not None:
-                    video_rel = viz.end_episode()
+                    video_rel = viz.end_episode(success=bool(final_success))
 
             oracle_success_metric = info.get("oracle_success")
             if oracle_success_metric is None:

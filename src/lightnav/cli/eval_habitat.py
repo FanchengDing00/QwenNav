@@ -99,7 +99,7 @@ def build_parser() -> argparse.ArgumentParser:
     viz.add_argument(
         "--save_video",
         action="store_true",
-        help="Write <video_dir>/<habitat_episode_id>.mp4 per episode: the agent's RGB frames "
+        help="Write <video_dir>/<habitat_episode_id>_suc=<0|1>.mp4 per episode: the agent's RGB frames "
         "with the predicted trajectory, pointing markers and a HUD (one frame per step).",
     )
     viz.add_argument(

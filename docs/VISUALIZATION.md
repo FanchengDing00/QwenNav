@@ -214,7 +214,7 @@ lightnav-eval-habitat --model_path /path/to/hf_ckpt --server tcp://localhost:555
 
 | flag | default | meaning |
 |---|---|---|
-| `--save_video` | off | write `<video_dir>/<habitat_episode_id>.mp4` per episode, one frame per policy step (`per_step` timebase) plus the terminal observation |
+| `--save_video` | off | write `<video_dir>/<habitat_episode_id>_suc=<0\|1>.mp4` per episode (`suc` = success), one frame per policy step (`per_step` timebase) plus the terminal observation |
 | `--video_dir` | `<output_dir>/videos` | shared video root; parallel evaluation uses `<benchmark_output>/videos` for all shards |
 | `--video_episode_count` | `0` | full split size used to zero-pad numeric episode ids to a uniform filename width |
 | `--video_fps` | `10` | playback frame rate of those videos |
@@ -228,7 +228,7 @@ prediction, *before* the environment advances; the observation returned by the l
 is appended with the last prediction so the terminal view is visible. The writer opens on
 the first frame and the file is renamed into place when the episode ends, so an
 interrupted run leaves no half-written `episode_*.mp4`. Each episode's result record
-(`results.jsonl`) gains a path such as `"video": "videos/0123.mp4"` when a video was written;
+(`results.jsonl`) gains a path such as `"video": "videos/0123_suc=0.mp4"` when a video was written;
 numeric episode ids are padded to the digit width of the full split size.
 
 `--save_video` requires the `video` extra; a missing `cv2` / `imageio` / `imageio_ffmpeg`
