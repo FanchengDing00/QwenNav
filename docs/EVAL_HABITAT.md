@@ -163,7 +163,8 @@ Knobs (env vars, see the script header): `GPU_IDS` / `NUM_GPUS` (default: all GP
 `nvidia-smi`), `TASK`, `HABITAT_CONFIG`, `SPLIT`, `SUCCESS_DISTANCE`, `DATA_PATH`,
 `SCENES_DIR`, `LANGUAGES`, `EPISODES` (per shard), `BACKEND`, `GPU_MEM_UTIL` (0.65),
 `CLIENT_ARGS` (e.g. `"--save_video"`), `HABITAT_CONDA_ENV`/`HABITAT_PYTHON`,
-`INFER_VENV`/`CLIENT_PYTHON`, `OUTPUT_ROOT` (default `output/habitat_<task>_<timestamp>`).
+`INFER_VENV`/`CLIENT_PYTHON`, `OUTPUT_ROOT` (default
+`output/<checkpoint>/habitat_<task>/<benchmark>`).
 Output: `OUTPUT_ROOT/shard_<i>/` per GPU plus the merged `OUTPUT_ROOT/results.jsonl` and
 `summary.json`; logs under `OUTPUT_ROOT/logs/`. Servers and clients are killed when the
 script exits. Merging can also be run by hand:

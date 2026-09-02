@@ -155,8 +155,8 @@ MODEL_PATH=/path/to/hf_ckpt TASK=objectnav HABITAT_CONFIG=habitat_server/configs
     SPLIT=val_unseen SUCCESS_DISTANCE=0.25 bash scripts/eval/eval_habitat.sh               # HM3D-OVON (also val_seen / val_seen_synonyms)
 ```
 
-Results land in `output/habitat_<task>_<timestamp>/summary.json` (SR / OS / SPL / NDTW / NE
-for VLN-CE; SR / SPL for ObjectNav). Add `CLIENT_ARGS="--save_video"` for per-episode overlay
+Results land in `output/<checkpoint>/habitat_<task>/<benchmark>/summary.json` (SR / OS /
+SPL / NDTW / NE for VLN-CE; SR / SPL for ObjectNav). Add `CLIENT_ARGS="--save_video"` for per-episode overlay
 videos. Single-process usage, flags and outputs: [EVAL_HABITAT.md](EVAL_HABITAT.md).
 
 ### EVT-Bench

@@ -72,7 +72,7 @@ echo "[eval_rxr] split:          $SPLIT guide (languages=$LANGUAGES, episodes=36
 echo "[eval_rxr] max steps:      $MAX_STEPS"
 echo "[eval_rxr] GPUs:           all detected GPUs"
 echo "[eval_rxr] output:         determined by eval_habitat.sh"
-echo "[eval_rxr] videos:         $REPO_ROOT/output/habitat_vlnce/$(basename "${MODEL_PATH%/}")/rxr/videos/"
+echo "[eval_rxr] videos:         $REPO_ROOT/output/$(basename "${MODEL_PATH%/}")/habitat_vlnce/rxr/videos/"
 
 # Pass this script's settings only to the evaluator process. Remove inherited optional
 # overrides so GPU discovery and the fixed RxR configuration remain deterministic.

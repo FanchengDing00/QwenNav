@@ -36,7 +36,7 @@
 #   INFER_VENV           lightnav virtualenv (default <repo>/.venv), or
 #   CLIENT_PYTHON        explicit interpreter for the eval client
 #   # ---- output ----
-#   OUTPUT_ROOT          default output/habitat_<task>/<checkpoint>/<benchmark>;
+#   OUTPUT_ROOT          default output/<checkpoint>/habitat_<task>/<benchmark>;
 #                        shards in shard_<i>/
 #   LOG_DIR              default $OUTPUT_ROOT/logs
 #
@@ -153,7 +153,7 @@ CHECKPOINT_NAME=$(basename "${MODEL_PATH%/}")
 CONFIG_NAME=$(basename "$HABITAT_CONFIG" .yaml)
 BENCHMARK_NAME=${CONFIG_NAME#vlnce_}
 BENCHMARK_NAME=${BENCHMARK_NAME#objectnav_}
-OUTPUT_ROOT=${OUTPUT_ROOT:-$REPO_ROOT/output/habitat_${TASK}/$CHECKPOINT_NAME/$BENCHMARK_NAME}
+OUTPUT_ROOT=${OUTPUT_ROOT:-$REPO_ROOT/output/$CHECKPOINT_NAME/habitat_${TASK}/$BENCHMARK_NAME}
 LOG_DIR=${LOG_DIR:-$OUTPUT_ROOT/logs}
 READY_DIR="$OUTPUT_ROOT/.ready"
 
