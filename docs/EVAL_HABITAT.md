@@ -97,7 +97,9 @@ the client stops when the server's episode iterator cycles back to an already se
 | `--max_new_tokens N` | `64` | per-step decode cap; raised automatically to grounding prefix + action tokens when smaller |
 | `--zmq_timeout_ms N` | `600000` | receive timeout per attempt (Habitat scene loads are slow) |
 | `--verbose` | off | one line per step with the raw model text and the chosen waypoint |
-| `--save_video` | off | write `<output_dir>/videos/<episode_id>.mp4` per episode (predicted trajectory, pointing markers, HUD over the agent's frames; one frame per step). Needs `pip install -e ".[video]"` |
+| `--save_video` | off | write `<video_dir>/<habitat_episode_id>.mp4` per episode (predicted trajectory, pointing markers, HUD over the agent's frames; one frame per step). Needs `pip install -e ".[video]"` |
+| `--video_dir DIR` | `<output_dir>/videos` | shared video root; the parallel script sets this to the benchmark root's `videos/` directory |
+| `--video_episode_count N` | `0` | full split size used to zero-pad numeric episode ids to a uniform filename width |
 | `--video_fps N` | `10` | playback frame rate of the saved videos |
 | `--hfov_deg F` | `120.0` | agent camera horizontal FOV for the trajectory overlay (the shipped yamls) |
 | `--cam_height F` | `0.88` | agent camera height in metres for the trajectory overlay (the shipped yamls) |
@@ -209,9 +211,13 @@ covers the current run):
 uses the server's `oracle_success` metric when present, otherwise `min_distance < 3.0 m`
 (VLN-CE) / `< 0.1 m` (ObjectNav).
 
-With `--save_video` each record also carries `"video": "videos/episode_000.mp4"` (relative
-to `output_dir`) and `<output_dir>/videos/` holds one mp4 per episode: the frame the policy
-acted on at every step with the predicted trajectory ribbon, the pointing markers and a HUD
+With `--save_video` each record also carries a path such as
+`"video": "videos/0123.mp4"`. Numeric episode ids are padded to the digit width of the
+full split size (R2R: 4 digits; RxR: 5 digits).
+Parallel evaluation stores every shard's videos together
+under `<benchmark_output>/videos/`; the filename is the original Habitat episode id.
+Each mp4 contains the frame the policy acted on at every step with the
+predicted trajectory ribbon, the pointing markers and a HUD
 (instruction, GO/STOP, step, first-waypoint velocities), plus the terminal observation.
 `--record_dir DIR` additionally writes the raw episodes (frames + records) under
 `DIR/run_<timestamp>/eval/episode_NNN/`, which `lightnav-render DIR` renders with other

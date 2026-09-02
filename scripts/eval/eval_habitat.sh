@@ -157,6 +157,22 @@ OUTPUT_ROOT=${OUTPUT_ROOT:-$REPO_ROOT/output/habitat_${TASK}/$CHECKPOINT_NAME/$B
 LOG_DIR=${LOG_DIR:-$OUTPUT_ROOT/logs}
 READY_DIR="$OUTPUT_ROOT/.ready"
 
+# Full split sizes serve two separate purposes: TOTAL_EPISODES drives the visible
+# progress bar after language filtering; VIDEO_EPISODE_COUNT determines the width of
+# original Habitat episode ids. RxR English keeps 3,669 of the raw split's 11,006 ids.
+TOTAL_EPISODES=0
+VIDEO_EPISODE_COUNT=0
+case "$BENCHMARK_NAME" in
+    r2r)
+        TOTAL_EPISODES=1839
+        VIDEO_EPISODE_COUNT=1839
+        ;;
+    rxr)
+        TOTAL_EPISODES=3669
+        VIDEO_EPISODE_COUNT=11006
+        ;;
+esac
+
 if [ -e "$OUTPUT_ROOT" ] || [ -L "$OUTPUT_ROOT" ]; then
     echo "$TAG ERROR: output path already exists; refusing to overwrite previous results: $OUTPUT_ROOT" >&2
     exit 1
@@ -239,7 +255,9 @@ done
 
 # ── 3. eval clients ──────────────────────────────────────────────────────────
 client_args=(--model_path "$MODEL_PATH" --backend "$BACKEND" --episodes "$EPISODES" \
-             --max_steps "$MAX_STEPS" --gpu_memory_utilization "$GPU_MEM_UTIL")
+             --max_steps "$MAX_STEPS" --gpu_memory_utilization "$GPU_MEM_UTIL" \
+             --video_dir "$OUTPUT_ROOT/videos" \
+             --video_episode_count "$VIDEO_EPISODE_COUNT")
 [ -n "$ACTION_TOKENIZER_BUNDLE" ] && client_args+=(--action_tokenizer_bundle "$ACTION_TOKENIZER_BUNDLE")
 # shellcheck disable=SC2206
 [ -n "$LANGUAGES" ] && client_args+=(--languages $LANGUAGES)
@@ -262,11 +280,6 @@ done
 
 # Keep client stdout/stderr in the existing per-shard logs. A separate Python/tqdm
 # monitor displays completion counts without reading metrics or changing eval state.
-TOTAL_EPISODES=0
-case "$BENCHMARK_NAME" in
-    r2r) TOTAL_EPISODES=1839 ;;
-    rxr) TOTAL_EPISODES=3669 ;;
-esac
 if [[ -t 2 && "$TASK" = "vlnce" && "$TOTAL_EPISODES" -gt 0 ]]; then
     "$CLIENT_PYTHON" -m lightnav.cli.eval_progress \
         --output-root "$OUTPUT_ROOT" \

@@ -5,7 +5,7 @@ episodes (``reset`` -> per-step ``policy.act`` -> ``env.step``) -> append one
 result dict per episode to ``<output_dir>/results.jsonl`` -> print/write the
 VLN-CE or ObjectNav summary. Decoding is greedy; no sampling knobs are set.
 With ``save_video`` / ``record_dir`` each step's frame is also rendered with the
-prediction (``lightnav.viz``) into ``<output_dir>/videos/`` and/or recorded raw.
+prediction (``lightnav.viz``) into the configured video root and/or recorded raw.
 
 The env, policy and engine constructors can be injected so the loop can be
 exercised without a GPU or model.
@@ -17,6 +17,7 @@ import importlib
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,9 +74,12 @@ class HabitatEvalConfig:
     zmq_timeout_ms: int = 600000
     verbose: bool = False
     # Visualisation (docs/VISUALIZATION.md). `save_video` needs the `video` extra and writes
-    # <output_dir>/videos/<episode_id>.mp4 with one frame per policy step; `record_dir`
+    # <video_dir>/<habitat_episode_id>.mp4 with one frame per policy step;
+    # an empty video_dir defaults to <output_dir>/videos. `record_dir`
     # additionally records the raw episodes in the layout `lightnav-render` reads.
     save_video: bool = False
+    video_dir: str = ""
+    video_episode_count: int = 0
     video_fps: int = 10
     hfov_deg: float = 120.0  # agent camera, as in habitat_server/configs/*.yaml
     cam_height: float = 0.88  # metres above the floor, as in the yamls
@@ -290,6 +294,21 @@ _VIDEO_MODULES = ("cv2", "imageio", "imageio_ffmpeg")
 _VIDEOS_SUBDIR = "videos"
 
 
+def _video_path_component(value: Any, fallback: str) -> str:
+    """Return a filesystem-safe scene or episode component without changing its identity."""
+    component = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value)).strip("._")
+    return component or fallback
+
+
+def _video_episode_name(episode_id: Any, episode_count: int) -> str:
+    """Zero-pad numeric Habitat episode ids to the digit width of the full split."""
+    component = _video_path_component(episode_id, "unknown_episode")
+    if not component.isdigit() or episode_count <= 0:
+        return component
+    width = len(str(episode_count))
+    return component.zfill(width)
+
+
 def _require_video_deps() -> None:
     """Fail fast (before the engine loads) when ``save_video`` lacks the ``video`` extra."""
     missing = []
@@ -365,8 +384,9 @@ class _EvalVisualizer:
 
     def __init__(self, cfg: HabitatEvalConfig, output_dir: str) -> None:
         self.cfg = cfg
-        self.videos_dir = Path(output_dir) / _VIDEOS_SUBDIR
+        self.videos_dir = Path(cfg.video_dir) if cfg.video_dir else Path(output_dir) / _VIDEOS_SUBDIR
         self._video: _EpisodeVideo | None = None
+        self._video_rel: str | None = None
         self._video_failed = False
         self._last_waypoints: np.ndarray | None = None
         self._recorder: Any = None
@@ -396,11 +416,14 @@ class _EvalVisualizer:
     def record_run_dir(self) -> Path | None:
         return getattr(self._recorder, "run_dir", None) if self._recorder is not None else None
 
-    def begin_episode(self, episode_id: str) -> None:
+    def begin_episode(self, habitat_episode_id: str) -> None:
         self._last_waypoints = None
         self._video_failed = False
+        self._video_rel = None
         if self.cfg.save_video:
-            self._video = _EpisodeVideo(self.videos_dir / f"{episode_id}.mp4", self.cfg.video_fps)
+            episode_name = _video_episode_name(habitat_episode_id, self.cfg.video_episode_count)
+            self._video_rel = (Path(_VIDEOS_SUBDIR) / f"{episode_name}.mp4").as_posix()
+            self._video = _EpisodeVideo(self.videos_dir / f"{episode_name}.mp4", self.cfg.video_fps)
         if self._conn is not None:
             self._conn.begin_episode()
 
@@ -497,7 +520,7 @@ class _EvalVisualizer:
         self._write(frame)
 
     def end_episode(self) -> str | None:
-        """Close the episode; return the video path relative to ``output_dir`` if written."""
+        """Close the episode; return its path relative to the evaluation root if written."""
         video_rel: str | None = None
         if self._video is not None:
             written = None
@@ -512,8 +535,9 @@ class _EvalVisualizer:
                     )
                     self._video.abort()
             if written is not None:
-                video_rel = f"{_VIDEOS_SUBDIR}/{written.name}"
+                video_rel = self._video_rel
             self._video = None
+            self._video_rel = None
         if self._conn is not None:
             try:
                 self._conn.end_episode()
@@ -599,7 +623,8 @@ def run_habitat_eval(
     if lang_filter:
         print(f"  Language filter: {sorted(lang_filter)}")
     if cfg.save_video:
-        print(f"  Videos:   {os.path.join(output_dir, _VIDEOS_SUBDIR)} ({cfg.video_fps} fps, one frame per step)")
+        videos_dir = cfg.video_dir or os.path.join(output_dir, _VIDEOS_SUBDIR)
+        print(f"  Videos:   {videos_dir}/<episode_id>.mp4 ({cfg.video_fps} fps, one frame per step)")
     if viz is not None and viz.record_run_dir is not None:
         print(f"  Record:   {viz.record_run_dir}")
     print(f"{sep}\n", flush=True)
@@ -642,7 +667,7 @@ def run_habitat_eval(
                 policy = policy_factory(cfg, engine, bundle, info)
             policy.reset(obs)
             if viz is not None:
-                viz.begin_episode(episode_id)
+                viz.begin_episode(str(habitat_ep_id))
 
             final_success: Any = False
             forced_stop_used = False

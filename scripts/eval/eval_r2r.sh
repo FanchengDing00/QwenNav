@@ -70,7 +70,7 @@ echo "[eval_r2r] inference env:  $INFER_VENV"
 echo "[eval_r2r] split:          $SPLIT (episodes=$EPISODES, max_steps=$MAX_STEPS)"
 echo "[eval_r2r] GPUs:           all detected GPUs"
 echo "[eval_r2r] output:         determined by eval_habitat.sh"
-echo "[eval_r2r] videos:         enabled (each shard writes to shard_<id>/videos/)"
+echo "[eval_r2r] videos:         $REPO_ROOT/output/habitat_vlnce/$(basename "${MODEL_PATH%/}")/r2r/videos/"
 
 # Pass this script's settings only to the evaluator process. Remove inherited optional
 # overrides so GPU discovery and the fixed R2R configuration remain deterministic.

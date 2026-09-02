@@ -156,7 +156,12 @@ class Harness:
 
 
 def _cfg(tmp_path: Path, **overrides) -> HabitatEvalConfig:
-    fields = dict(model_path="/path/to/model", output_dir=str(tmp_path / "out"), max_steps=50)
+    fields = dict(
+        model_path="/path/to/model",
+        output_dir=str(tmp_path / "out"),
+        max_steps=50,
+        video_episode_count=1839,
+    )
     fields.update(overrides)
     return HabitatEvalConfig(**fields)
 
@@ -636,17 +641,17 @@ def test_save_video_writes_one_mp4_per_episode_with_a_terminal_frame(tmp_path):
     results = h.run(cfg)
 
     videos = Path(cfg.output_dir) / "videos"
-    assert sorted(p.name for p in videos.iterdir()) == ["episode_000.mp4", "episode_001.mp4"]
-    assert [r["video"] for r in results] == ["videos/episode_000.mp4", "videos/episode_001.mp4"]
+    assert sorted(p.name for p in videos.glob("*.mp4")) == ["0001.mp4", "0002.mp4"]
+    assert [r["video"] for r in results] == ["videos/0001.mp4", "videos/0002.mp4"]
     assert [r["steps"] for r in results] == [3, 3]
     for r in results:
         shapes = _video_frames(Path(cfg.output_dir) / r["video"])
         assert len(shapes) == 3 + 1  # one frame per policy step + the terminal observation
         assert shapes[0] == (36, 64, 3)
-    assert not list(videos.glob("*.partial*"))
+    assert not list(videos.rglob("*.partial*"))
     # results.jsonl carries the same relative path.
     rows = _read_jsonl(Path(cfg.output_dir) / "results.jsonl")
-    assert [row["video"] for row in rows] == ["videos/episode_000.mp4", "videos/episode_001.mp4"]
+    assert [row["video"] for row in rows] == ["videos/0001.mp4", "videos/0002.mp4"]
 
 
 def test_save_video_handles_a_policy_without_a_decoded_chunk(tmp_path):
@@ -657,8 +662,21 @@ def test_save_video_handles_a_policy_without_a_decoded_chunk(tmp_path):
 
     (result,) = h.run(cfg)
 
-    assert result["video"] == "videos/episode_000.mp4"
+    assert result["video"] == "videos/0001.mp4"
     assert len(_video_frames(Path(cfg.output_dir) / result["video"])) == 3
+
+
+def test_save_video_accepts_a_shared_video_root(tmp_path):
+    pytest.importorskip("cv2")
+    pytest.importorskip("imageio_ffmpeg")
+    shared_videos = tmp_path / "videos"
+    cfg = _cfg(tmp_path, episodes=1, save_video=True, video_dir=str(shared_videos))
+
+    (result,) = Harness(FrameEnv(steps_to_terminate=2)).run(cfg)
+
+    assert result["video"] == "videos/0001.mp4"
+    assert (shared_videos / "0001.mp4").is_file()
+    assert not (Path(cfg.output_dir) / "videos").exists()
 
 
 def test_save_video_pads_odd_frames_for_the_encoder(tmp_path):
@@ -753,7 +771,7 @@ def test_record_dir_and_save_video_together(tmp_path):
     cfg = _cfg(tmp_path, episodes=1, save_video=True, record_dir=str(tmp_path / "rec"))
     (result,) = Harness(FrameEnv(steps_to_terminate=2)).run(cfg)
 
-    assert result["video"] == "videos/episode_000.mp4"
+    assert result["video"] == "videos/0001.mp4"
     assert len(find_episode_dirs([tmp_path / "rec"])) == 1
 
 
@@ -780,12 +798,12 @@ def test_a_video_that_fails_mid_episode_is_discarded_without_a_partial_file(tmp_
     videos = Path(cfg.output_dir) / "videos"
     # Episode 0 lost its encoder on the second frame: nothing renamed into place, no leftovers.
     assert "video" not in results[0]
-    assert not (videos / "episode_000.mp4").exists()
-    assert not list(videos.glob("*.partial*"))
+    assert not (videos / "0001.mp4").exists()
+    assert not list(videos.rglob("*.partial*"))
     # The evaluation itself went on unharmed, and the next episode's video is complete.
     assert [r["steps"] for r in results] == [3, 3]
-    assert results[1]["video"] == "videos/episode_001.mp4"
-    assert len(_video_frames(videos / "episode_001.mp4")) == 4
+    assert results[1]["video"] == "videos/0002.mp4"
+    assert len(_video_frames(videos / "0002.mp4")) == 4
     assert calls["n"] == 2 + 4  # 2 attempts on episode 0 (then dropped), 4 frames on episode 1
 
 

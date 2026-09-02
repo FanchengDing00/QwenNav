@@ -99,8 +99,19 @@ def build_parser() -> argparse.ArgumentParser:
     viz.add_argument(
         "--save_video",
         action="store_true",
-        help="Write <output_dir>/videos/<episode_id>.mp4 per episode: the agent's RGB frames "
+        help="Write <video_dir>/<habitat_episode_id>.mp4 per episode: the agent's RGB frames "
         "with the predicted trajectory, pointing markers and a HUD (one frame per step).",
+    )
+    viz.add_argument(
+        "--video_dir",
+        default=_DEFAULTS.video_dir,
+        help="Shared video root. Empty (default) uses <output_dir>/videos.",
+    )
+    viz.add_argument(
+        "--video_episode_count",
+        type=int,
+        default=_DEFAULTS.video_episode_count,
+        help="Full split size used to zero-pad numeric episode ids to a uniform width.",
     )
     viz.add_argument(
         "--video_fps",
@@ -163,6 +174,8 @@ def config_from_args(args: argparse.Namespace) -> HabitatEvalConfig:
         zmq_timeout_ms=args.zmq_timeout_ms,
         verbose=args.verbose,
         save_video=args.save_video,
+        video_dir=args.video_dir,
+        video_episode_count=args.video_episode_count,
         video_fps=args.video_fps,
         hfov_deg=args.hfov_deg,
         cam_height=args.cam_height,
