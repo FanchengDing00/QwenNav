@@ -144,6 +144,9 @@ the same MPC and client protocol as the real robots in
 One env server + one eval client per GPU, sharded and merged automatically:
 
 ```bash
+# Optionally expose only a subset; the wrappers use every GPU listed here.
+export CUDA_VISIBLE_DEVICES=0,1,2
+
 MODEL_PATH=/path/to/hf_ckpt bash scripts/eval/eval_habitat.sh                             # R2R, all GPUs
 MODEL_PATH=/path/to/hf_ckpt HABITAT_CONFIG=habitat_server/configs/vlnce_rxr.yaml \
     LANGUAGES="en-US en-IN" GPU_IDS="0 1" bash scripts/eval/eval_habitat.sh                # RxR
@@ -156,8 +159,10 @@ MODEL_PATH=/path/to/hf_ckpt TASK=objectnav HABITAT_CONFIG=habitat_server/configs
 ```
 
 Results land in `output/<checkpoint>/habitat_<task>/<benchmark>/summary.json` (SR / OS /
-SPL / NDTW / NE for VLN-CE; SR / SPL for ObjectNav). Add `CLIENT_ARGS="--save_video"` for per-episode overlay
-videos. Single-process usage, flags and outputs: [EVAL_HABITAT.md](EVAL_HABITAT.md).
+SPL / NDTW / NE for VLN-CE; SR / SPL for ObjectNav). RxR adds a language-subset level,
+for example `rxr/en-US_en-IN/summary.json` or `rxr/en-US/summary.json`. Add
+`CLIENT_ARGS="--save_video"` for per-episode overlay videos. Single-process usage, flags
+and outputs: [EVAL_HABITAT.md](EVAL_HABITAT.md).
 
 ### EVT-Bench
 

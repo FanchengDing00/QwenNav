@@ -19,6 +19,22 @@ Evaluation is split across two processes:
 | HM3D-OVON | `habitat_server/configs/objectnav_ovon.yaml` | `val_seen`, `val_seen_synonyms`, `val_unseen` | 3,000 each (36 scenes, open-vocabulary) | same | 0.25 m |
 
 RxR language splits: hi-IN 3,669 / te-IN 3,668 / en-IN 2,446 / en-US 1,223 episodes.
+
+The RxR wrappers keep language subsets separate in the output tree:
+
+```text
+output/<checkpoint>/habitat_vlnce/rxr/en-US_en-IN/  # official English evaluation
+output/<checkpoint>/habitat_vlnce/rxr/en-US/        # en-US-only evaluation
+```
+
+The optional language subset follows the checkpoint. When omitted, `eval_rxr.sh`
+evaluates the official `en-US + en-IN` combination:
+
+```bash
+./scripts/eval/eval_rxr.sh checkpoints/LightNav-0               # en-US + en-IN
+./scripts/eval/eval_rxr.sh checkpoints/LightNav-0 en-US         # en-US only
+./scripts/eval/eval_rxr.sh checkpoints/LightNav-0 en-IN         # en-IN only
+```
 English numbers are reported on `--languages en-US en-IN`.
 
 All tasks use the `velocity_control` action with a 500-step cap. Decoding is greedy.
@@ -159,12 +175,14 @@ MODEL_PATH=/path/to/checkpoint TASK=objectnav HABITAT_CONFIG=habitat_server/conf
     SPLIT=val_unseen SUCCESS_DISTANCE=0.25 bash scripts/eval/eval_habitat.sh
 ```
 
-Knobs (env vars, see the script header): `GPU_IDS` / `NUM_GPUS` (default: all GPUs from
-`nvidia-smi`), `TASK`, `HABITAT_CONFIG`, `SPLIT`, `SUCCESS_DISTANCE`, `DATA_PATH`,
+Knobs (env vars, see the script header): `CUDA_VISIBLE_DEVICES=0,1,2` selects the GPUs
+(default: all GPUs from `nvidia-smi`; `GPU_IDS` / `NUM_GPUS` are lower-level overrides),
+`TASK`, `HABITAT_CONFIG`, `SPLIT`, `SUCCESS_DISTANCE`, `DATA_PATH`,
 `SCENES_DIR`, `LANGUAGES`, `EPISODES` (per shard), `BACKEND`, `GPU_MEM_UTIL` (0.65),
 `CLIENT_ARGS` (e.g. `"--save_video"`), `HABITAT_CONDA_ENV`/`HABITAT_PYTHON`,
 `INFER_VENV`/`CLIENT_PYTHON`, `OUTPUT_ROOT` (default
-`output/<checkpoint>/habitat_<task>/<benchmark>`).
+`output/<checkpoint>/habitat_<task>/<benchmark>`; RxR appends its language subset, such as
+`rxr/en-US_en-IN`).
 Output: `OUTPUT_ROOT/shard_<i>/` per GPU plus the merged `OUTPUT_ROOT/results.jsonl` and
 `summary.json`; logs under `OUTPUT_ROOT/logs/`. Servers and clients are killed when the
 script exits. Merging can also be run by hand:

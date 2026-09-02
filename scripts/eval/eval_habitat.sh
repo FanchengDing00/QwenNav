@@ -26,6 +26,8 @@
 #   MAX_STEPS            default 500
 #   SERVER_ARGS          extra lightnav_habitat.serve flags
 #   # ---- topology ----
+#   CUDA_VISIBLE_DEVICES comma-separated physical GPU ids, e.g. 0,1,2 (honoured when
+#                       GPU_IDS / NUM_GPUS are unset; default: all detected GPUs)
 #   GPU_IDS              GPUs to use, e.g. "0 1 3" (default: all visible GPUs)
 #   NUM_GPUS             alternative to GPU_IDS: use GPUs 0..NUM_GPUS-1
 #   BASE_PORT            first ZMQ port (default 5555)
@@ -37,6 +39,7 @@
 #   CLIENT_PYTHON        explicit interpreter for the eval client
 #   # ---- output ----
 #   OUTPUT_ROOT          default output/<checkpoint>/habitat_<task>/<benchmark>;
+#                        RxR adds a language-subset directory, e.g. rxr/en-US_en-IN;
 #                        shards in shard_<i>/
 #   LOG_DIR              default $OUTPUT_ROOT/logs
 #
@@ -83,11 +86,43 @@ if [ -n "${GPU_IDS:-}" ]; then
     read -ra GPUS <<< "$GPU_IDS"
 elif [ -n "${NUM_GPUS:-}" ]; then
     GPUS=(); for ((i = 0; i < NUM_GPUS; i++)); do GPUS+=("$i"); done
+elif [ "${CUDA_VISIBLE_DEVICES+x}" = x ]; then
+    [ -n "$CUDA_VISIBLE_DEVICES" ] || {
+        echo "$TAG ERROR: CUDA_VISIBLE_DEVICES is empty; provide comma-separated GPU ids" >&2
+        exit 1
+    }
+    IFS=',' read -ra GPUS <<< "$CUDA_VISIBLE_DEVICES"
 else
-    DETECTED=$(nvidia-smi -L 2>/dev/null | grep -c '^GPU' || true)
-    [ "${DETECTED:-0}" -ge 1 ] || { echo "$TAG ERROR: no GPU detected; set GPU_IDS or NUM_GPUS" >&2; exit 1; }
+    DETECTED=$(env -u CUDA_VISIBLE_DEVICES nvidia-smi -L 2>/dev/null | grep -c '^GPU' || true)
+    [ "${DETECTED:-0}" -ge 1 ] || { echo "$TAG ERROR: no GPU detected; set CUDA_VISIBLE_DEVICES, GPU_IDS, or NUM_GPUS" >&2; exit 1; }
     GPUS=(); for ((i = 0; i < DETECTED; i++)); do GPUS+=("$i"); done
 fi
+
+# GPU ids are physical indices because Habitat-Sim/EGL must resolve the same device.
+# Keep the servers unrestricted after selection; each model client is restricted to its
+# assigned physical GPU below. UUID/MIG forms are intentionally rejected here.
+NORMALIZED_GPUS=()
+SEEN_GPUS=""
+for g in "${GPUS[@]}"; do
+    g=${g//[[:space:]]/}
+    [[ "$g" =~ ^[0-9]+$ ]] || {
+        echo "$TAG ERROR: GPU id must be a physical integer, got: $g" >&2
+        exit 1
+    }
+    g=$((10#$g))
+    case " $SEEN_GPUS " in
+        *" $g "*) echo "$TAG ERROR: duplicate GPU id: $g" >&2; exit 1 ;;
+    esac
+    SEEN_GPUS="$SEEN_GPUS $g"
+    NORMALIZED_GPUS+=("$g")
+done
+GPUS=("${NORMALIZED_GPUS[@]}")
+[ "${#GPUS[@]}" -gt 0 ] || { echo "$TAG ERROR: no GPU selected" >&2; exit 1; }
+
+# An inherited mask would remap physical ids for Habitat-Sim and break CUDA/EGL matching.
+# Selection is already captured in GPUS; servers see all physical devices, while each client
+# receives CUDA_VISIBLE_DEVICES=<its assigned physical id> at launch.
+unset CUDA_VISIBLE_DEVICES
 N=${#GPUS[@]}
 BASE_PORT=${BASE_PORT:-5555}
 READY_TIMEOUT_S=${READY_TIMEOUT_S:-900}
@@ -153,7 +188,12 @@ CHECKPOINT_NAME=$(basename "${MODEL_PATH%/}")
 CONFIG_NAME=$(basename "$HABITAT_CONFIG" .yaml)
 BENCHMARK_NAME=${CONFIG_NAME#vlnce_}
 BENCHMARK_NAME=${BENCHMARK_NAME#objectnav_}
-OUTPUT_ROOT=${OUTPUT_ROOT:-$REPO_ROOT/output/$CHECKPOINT_NAME/habitat_${TASK}/$BENCHMARK_NAME}
+DEFAULT_OUTPUT_ROOT="$REPO_ROOT/output/$CHECKPOINT_NAME/habitat_${TASK}/$BENCHMARK_NAME"
+if [ "$BENCHMARK_NAME" = "rxr" ] && [ -n "$LANGUAGES" ]; then
+    LANGUAGE_SUBSET=${LANGUAGES// /_}
+    DEFAULT_OUTPUT_ROOT="$DEFAULT_OUTPUT_ROOT/$LANGUAGE_SUBSET"
+fi
+OUTPUT_ROOT=${OUTPUT_ROOT:-$DEFAULT_OUTPUT_ROOT}
 LOG_DIR=${LOG_DIR:-$OUTPUT_ROOT/logs}
 READY_DIR="$OUTPUT_ROOT/.ready"
 
@@ -168,8 +208,12 @@ case "$BENCHMARK_NAME" in
         VIDEO_EPISODE_COUNT=1839
         ;;
     rxr)
-        TOTAL_EPISODES=3669
         VIDEO_EPISODE_COUNT=11006
+        case "$LANGUAGES" in
+            "en-US") TOTAL_EPISODES=1223 ;;
+            "en-IN") TOTAL_EPISODES=2446 ;;
+            "en-US en-IN"|"en-IN en-US") TOTAL_EPISODES=3669 ;;
+        esac
         ;;
 esac
 

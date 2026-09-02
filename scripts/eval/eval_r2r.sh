@@ -68,14 +68,14 @@ echo "[eval_r2r] model:          $MODEL_PATH"
 echo "[eval_r2r] habitat env:    $HABITAT_CONDA_ENV"
 echo "[eval_r2r] inference env:  $INFER_VENV"
 echo "[eval_r2r] split:          $SPLIT (episodes=$EPISODES, max_steps=$MAX_STEPS)"
-echo "[eval_r2r] GPUs:           all detected GPUs"
+echo "[eval_r2r] GPUs:           ${CUDA_VISIBLE_DEVICES-unset (all detected GPUs)}"
 echo "[eval_r2r] output:         determined by eval_habitat.sh"
 echo "[eval_r2r] videos:         $REPO_ROOT/output/$(basename "${MODEL_PATH%/}")/habitat_vlnce/r2r/videos/"
 
-# Pass this script's settings only to the evaluator process. Remove inherited optional
-# overrides so GPU discovery and the fixed R2R configuration remain deterministic.
+# Pass this script's settings only to the evaluator process. Preserve an inherited
+# CUDA_VISIBLE_DEVICES mask; eval_habitat.sh uses every GPU listed in it.
 exec env \
-    -u GPU_IDS -u NUM_GPUS -u OUTPUT_ROOT -u LOG_DIR -u CUDA_VISIBLE_DEVICES \
+    -u GPU_IDS -u NUM_GPUS -u OUTPUT_ROOT -u LOG_DIR \
     -u ACTION_TOKENIZER_BUNDLE -u SUCCESS_DISTANCE -u DATA_PATH -u SCENES_DIR \
     -u LANGUAGES -u SERVER_ARGS -u CLIENT_PYTHON -u HABITAT_PYTHON \
     MODEL_PATH="$MODEL_PATH" \
