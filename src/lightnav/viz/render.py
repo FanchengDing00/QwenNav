@@ -364,6 +364,38 @@ def normalize_instruction(text: str) -> str:
     return t
 
 
+def _wrap_text(text: str, max_width: int, measure) -> list[str]:
+    """Wrap ``text`` without dropping characters or adding an ellipsis.
+
+    Whitespace is normalized by the caller. Words wider than the full row are
+    split at character boundaries so even an unusually long token remains fully
+    visible instead of overflowing or being truncated.
+    """
+    if not text:
+        return []
+    max_width = max(1, int(max_width))
+    lines: list[str] = []
+    current = ""
+    for word in text.split():
+        candidate = word if not current else f"{current} {word}"
+        if measure(candidate) <= max_width:
+            current = candidate
+            continue
+        if current:
+            lines.append(current)
+            current = ""
+        while word and measure(word) > max_width:
+            cut = 1
+            while cut < len(word) and measure(word[: cut + 1]) <= max_width:
+                cut += 1
+            lines.append(word[:cut])
+            word = word[cut:]
+        current = word
+    if current:
+        lines.append(current)
+    return lines
+
+
 def body_velocity(waypoints, dt_s: float):
     """``(vx, vy, vyaw)`` from the first waypoint, or None when there is none.
 
@@ -469,7 +501,10 @@ def _bar(out: np.ndarray, x: int, y: int, w: int, h: int, frac: float) -> None:
 
 def draw_scifi_hud(rgb: np.ndarray, *, instruction: str, step, fps, vel,
                    stop: bool = False) -> np.ndarray:
-    """Header (instruction | GO/STOP | step | rate) plus a body-velocity readout.
+    """Two-level header plus a body-velocity readout.
+
+    The first row carries the stable status fields; the full navigation command
+    occupies wrapped rows below it. No instruction text is intentionally omitted.
 
     ``vel`` is ``(vx, vy, vyaw)`` or None; ``fps`` is the step rate in Hz or None.
     Text is placed with PIL anchors on real font metrics; when no TrueType face is
@@ -504,17 +539,13 @@ def draw_scifi_hud(rgb: np.ndarray, *, instruction: str, step, fps, vel,
         (tw, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, hershey_scale, 1)
         return tw
 
-    # ---- header ------------------------------------------------------------
-    bar_h = max(16, int(round(24 * s)))
-    _blend_panel(out, 0, 0, w, bar_h, _C_PANEL, _PANEL_ALPHA)
-    cv2.line(out, (0, bar_h), (w, bar_h), _C_ACCENT, max(1, int(round(s))), cv2.LINE_AA)
-    mid_y = bar_h // 2
-
-    # GO / STOP reflects the decoded action (the ``stop`` flag), not a pointing directive.
+    # ---- header status fields ---------------------------------------------
+    status_h = max(16, int(round(24 * s)))
+    status_mid_y = status_h // 2
     pill_txt = "STOP" if stop else "GO"
     pill_bg = _C_STOP if stop else _C_GO
     pill_pad = max(3, int(round(6 * s)))
-    pill_h = max(11, bar_h - 2 * max(2, int(round(4 * s))))
+    pill_h = max(11, status_h - 2 * max(2, int(round(4 * s))))
     step_txt = f"STEP {int(step):04d}" if step is not None else "STEP ----"
     try:
         fps_txt = f"{float(fps):.2f} Hz"
@@ -525,19 +556,45 @@ def draw_scifi_hud(rgb: np.ndarray, *, instruction: str, step, fps, vel,
     w_pill = width(pill_txt, head_lab_f) + 2 * pill_pad
     right_w = w_pill + pill_pad + w_step + w_sep + w_fps
 
-    # A chevron marks the instruction as a command being executed.
+    # ---- complete wrapped instruction -------------------------------------
     chev_w = max(4, int(round(5 * s)))
     instr_x = pad + chev_w + max(3, int(round(5 * s)))
     instr = " ".join((instruction or "").split())
-    avail = w - instr_x - pad - right_w - pad
-    ellipsis = "…" if pil_ok else "..."
-    if instr and width(instr, instr_f) > avail:
-        while instr and width(instr + ellipsis, instr_f) > avail:
-            instr = instr[:-1]
-        instr = instr.rstrip() + ellipsis
-    cv2.fillPoly(out, [np.array([(pad, mid_y - chev_w), (pad + chev_w, mid_y),
-                                 (pad, mid_y + chev_w)], dtype=np.int32)],
-                 _C_ACCENT, cv2.LINE_AA)
+    instr_avail = max(1, w - instr_x - pad)
+
+    # Prefer the normal instruction size, shrinking only when wrapping would
+    # consume an excessive part of the frame. The text itself is never shortened.
+    instr_px = f_instr
+    target_header_h = max(status_h, int(round(h * 0.45)))
+    while True:
+        if pil_ok:
+            instr_f = _font("bold", instr_px)
+        line_h = max(8, int(round((instr_px + 3) if pil_ok else (13 * s))))
+        instr_lines = _wrap_text(instr, instr_avail, lambda value: width(value, instr_f))
+        instr_panel_h = 0 if not instr_lines else max(4, int(round(5 * s))) + len(instr_lines) * line_h
+        bar_h = status_h + instr_panel_h
+        if bar_h <= target_header_h or not pil_ok or instr_px <= max(6, int(round(7 * s))):
+            break
+        instr_px -= 1
+
+    _blend_panel(out, 0, 0, w, bar_h, _C_PANEL, _PANEL_ALPHA)
+    cv2.line(out, (0, status_h), (w, status_h), _C_ACCENT_DIM,
+             max(1, int(round(s))), cv2.LINE_AA)
+    cv2.line(out, (0, bar_h), (w, bar_h), _C_ACCENT,
+             max(1, int(round(s))), cv2.LINE_AA)
+
+    instruction_centres: list[int] = []
+    if instr_lines:
+        first_y = status_h + max(2, int(round(2 * s))) + line_h // 2
+        instruction_centres = [first_y + i * line_h for i in range(len(instr_lines))]
+        chevron_y = instruction_centres[0]
+        cv2.fillPoly(
+            out,
+            [np.array([(pad, chevron_y - chev_w), (pad + chev_w, chevron_y),
+                       (pad, chevron_y + chev_w)], dtype=np.int32)],
+            _C_ACCENT,
+            cv2.LINE_AA,
+        )
 
     # ---- telemetry block ---------------------------------------------------
     rows = (("VX", "m/s", 0, _VX_FULL), ("VY", "m/s", 1, _VY_FULL),
@@ -557,17 +614,22 @@ def draw_scifi_hud(rgb: np.ndarray, *, instruction: str, step, fps, vel,
              max(2, int(round(2 * s))), cv2.LINE_AA)
 
     text_ops = []  # (x, y, text, colour, font, anchor)
-    text_ops.append((instr_x, mid_y, instr, _C_TEXT, instr_f, "lm"))
+    command_label = "NAV COMMAND"
+    label_avail = max(0, w - pad - right_w - 2 * pad)
+    if width(command_label, head_lab_f) <= label_avail:
+        text_ops.append((pad, status_mid_y, command_label, _C_ACCENT_DIM, head_lab_f, "lm"))
+    for line, cy in zip(instr_lines, instruction_centres):
+        text_ops.append((instr_x, cy, line, _C_TEXT, instr_f, "lm"))
     rx = w - pad
-    text_ops.append((rx, mid_y, fps_txt, _C_VALUE, head_num_f, "rm"))
-    text_ops.append((rx - w_fps, mid_y, "  |  ", _C_ACCENT_DIM, head_lab_f, "rm"))
-    text_ops.append((rx - w_fps - w_sep, mid_y, step_txt, _C_ACCENT, head_num_f, "rm"))
+    text_ops.append((rx, status_mid_y, fps_txt, _C_VALUE, head_num_f, "rm"))
+    text_ops.append((rx - w_fps, status_mid_y, "  |  ", _C_ACCENT_DIM, head_lab_f, "rm"))
+    text_ops.append((rx - w_fps - w_sep, status_mid_y, step_txt, _C_ACCENT, head_num_f, "rm"))
     # Status pill: filled chip with dark glyphs, the one element meant to be seen first.
     px1 = rx - w_fps - w_sep - w_step - pill_pad
     px0 = px1 - w_pill
-    py0 = mid_y - pill_h // 2
+    py0 = status_mid_y - pill_h // 2
     cv2.rectangle(out, (px0, py0), (px1, py0 + pill_h), pill_bg, -1, cv2.LINE_AA)
-    text_ops.append(((px0 + px1) // 2, mid_y, pill_txt, _C_PANEL, head_lab_f, "mm"))
+    text_ops.append(((px0 + px1) // 2, status_mid_y, pill_txt, _C_PANEL, head_lab_f, "mm"))
 
     for i, (label, unit, idx, full) in enumerate(rows):
         cy = by + gap + i * row_h + row_h // 2

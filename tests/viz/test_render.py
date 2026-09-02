@@ -341,6 +341,21 @@ def test_draw_scifi_hud_tolerates_missing_telemetry_and_long_text():
     assert long.shape == rgb.shape and long.dtype == np.uint8
 
 
+def test_hud_instruction_wrapper_preserves_all_text_without_ellipsis():
+    from lightnav.viz.render import _wrap_text
+
+    text = "Exit the bedroom and turn left. Walk straight through the hallway."
+    lines = _wrap_text(text, 18, len)
+    assert " ".join(lines) == text
+    assert all(len(line) <= 18 for line in lines)
+    assert not any("..." in line or "…" in line for line in lines)
+
+    token = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    token_lines = _wrap_text(token, 5, len)
+    assert "".join(token_lines) == token
+    assert all(len(line) <= 5 for line in token_lines)
+
+
 def test_draw_scifi_hud_scales_to_other_frame_sizes():
     for h, w in ((90, 160), (1080, 1920), (33, 47)):
         out = draw_scifi_hud(_frame(h, w), instruction="go", step=1, fps=1.0, vel=(0.0, 0.0, 0.0))
