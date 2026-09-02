@@ -1,13 +1,14 @@
 """Terminal progress bars for parallel Habitat evaluation.
 
 The evaluator appends one JSON record to each shard's ``results.jsonl`` after an
-episode completes. This monitor only counts those records; it never reads metrics or
-modifies evaluation state.
+episode completes. This monitor counts completed records and their ``success`` values;
+it never modifies evaluation state or supplies metrics to the final summary.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -30,12 +31,28 @@ def shard_targets(total_episodes: int, num_shards: int, per_shard_limit: int) ->
     return targets
 
 
-def completed_episodes(path: Path, target: int) -> int:
+def shard_stats(path: Path, target: int) -> tuple[int, int]:
+    """Return ``(completed, successful)`` valid records, capped at the shard target."""
     if not path.is_file():
-        return 0
+        return 0, 0
+
+    completed = 0
+    successful = 0
     with path.open("rb") as f:
-        completed = sum(1 for _ in f)
-    return min(completed, target)
+        for line in f:
+            if completed >= target:
+                break
+            try:
+                record = json.loads(line)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                # A concurrently appended or damaged line does not affect evaluation;
+                # retry it from the file on the next polling pass.
+                continue
+            if not isinstance(record, dict):
+                continue
+            completed += 1
+            successful += int(bool(record.get("success", False)))
+    return completed, successful
 
 
 def monitor(
@@ -67,10 +84,11 @@ def monitor(
 
     try:
         while True:
-            counts = [
-                completed_episodes(output_root / f"shard_{index}" / "results.jsonl", target)
+            stats = [
+                shard_stats(output_root / f"shard_{index}" / "results.jsonl", target)
                 for index, target in enumerate(targets)
             ]
+            counts = [completed for completed, _successful in stats]
             for bar, count in zip(shard_bars, counts):
                 if count > bar.n:
                     bar.update(count - bar.n)
@@ -78,6 +96,9 @@ def monitor(
                     bar.refresh()
 
             total_count = sum(counts)
+            total_success = sum(successful for _completed, successful in stats)
+            sr = 100.0 * total_success / total_count if total_count else 0.0
+            total_bar.set_postfix_str(f"SR={sr:.1f}% ({total_success}/{total_count})", refresh=False)
             if total_count > total_bar.n:
                 total_bar.update(total_count - total_bar.n)
             else:
