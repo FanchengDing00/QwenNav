@@ -144,15 +144,15 @@ the same MPC and client protocol as the real robots in
 One env server + one eval client per GPU, sharded and merged automatically:
 
 ```bash
-MODEL_PATH=/path/to/hf_ckpt bash scripts/eval_habitat.sh                                  # R2R, all GPUs
+MODEL_PATH=/path/to/hf_ckpt bash scripts/eval/eval_habitat.sh                             # R2R, all GPUs
 MODEL_PATH=/path/to/hf_ckpt HABITAT_CONFIG=habitat_server/configs/vlnce_rxr.yaml \
-    LANGUAGES="en-US en-IN" GPU_IDS="0 1" bash scripts/eval_habitat.sh                     # RxR
+    LANGUAGES="en-US en-IN" GPU_IDS="0 1" bash scripts/eval/eval_habitat.sh                # RxR
 MODEL_PATH=/path/to/hf_ckpt TASK=objectnav HABITAT_CONFIG=habitat_server/configs/objectnav_hm3d_v1.yaml \
-    SPLIT=val bash scripts/eval_habitat.sh                                                 # HM3D v1
+    SPLIT=val bash scripts/eval/eval_habitat.sh                                            # HM3D v1
 MODEL_PATH=/path/to/hf_ckpt TASK=objectnav HABITAT_CONFIG=habitat_server/configs/objectnav_mp3d.yaml \
-    SPLIT=val bash scripts/eval_habitat.sh                                                 # MP3D v1
+    SPLIT=val bash scripts/eval/eval_habitat.sh                                            # MP3D v1
 MODEL_PATH=/path/to/hf_ckpt TASK=objectnav HABITAT_CONFIG=habitat_server/configs/objectnav_ovon.yaml \
-    SPLIT=val_unseen SUCCESS_DISTANCE=0.25 bash scripts/eval_habitat.sh                    # HM3D-OVON (also val_seen / val_seen_synonyms)
+    SPLIT=val_unseen SUCCESS_DISTANCE=0.25 bash scripts/eval/eval_habitat.sh               # HM3D-OVON (also val_seen / val_seen_synonyms)
 ```
 
 Results land in `output/habitat_<task>_<timestamp>/summary.json` (SR / OS / SPL / NDTW / NE
@@ -166,7 +166,7 @@ Start tracking servers, run the 30 shards, aggregate with `analyze_results.py`:
 ```bash
 MODEL_PATH=checkpoints/LightNav-0 \
     NUM_GPUS=2 SERVERS_PER_GPU=4 EVT_BENCH_REPO=$HOME/EVT-Bench TASK_VARIANTS="dt stt" \
-    bash scripts/eval_evt_bench.sh
+    bash scripts/eval/eval_evt_bench.sh
 ```
 
 Keep `CHUNKS=30` (the shard count is part of the benchmark definition). Details, the
@@ -215,7 +215,7 @@ ribbon, pointing markers and a telemetry HUD:
 ```bash
 lightnav-serve ... --record_dir output/episodes --cam_hfov_deg 112 --cam_height 0.45   # record on the server
 lightnav-render output/episodes                                                          # -> traj_pointing.mp4
-CLIENT_ARGS="--save_video" MODEL_PATH=... bash scripts/eval_habitat.sh                   # per-episode eval videos
+CLIENT_ARGS="--save_video" MODEL_PATH=... bash scripts/eval/eval_habitat.sh              # per-episode eval videos
 ```
 
 See [VISUALIZATION.md](VISUALIZATION.md).

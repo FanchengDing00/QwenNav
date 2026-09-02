@@ -49,7 +49,6 @@ decoder.
 
 Steps: `lightnav-predict` with the `hf` and `vllm_local` backends; `lightnav-serve` +
 `lightnav-ws-client` with `--record_dir`, then `lightnav-render`; one Habitat episode via
-`scripts/eval_habitat.sh` (skipped without `HABITAT_CONFIG`); one EVT-Bench shard against
+`scripts/eval/eval_habitat.sh` (skipped without `HABITAT_CONFIG`); one EVT-Bench shard against
 the running server (skipped without `EVT_BENCH_REPO`). Logs and outputs land in
 `output/smoke_<timestamp>/`.
-

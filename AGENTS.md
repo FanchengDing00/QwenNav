@@ -17,7 +17,7 @@ habitat_server/  Habitat env server — separate Python 3.9 conda env, not this 
 evt_bench/       EVT-Bench client agent + a patch applied to a third-party checkout
 robot_deploy/    ROS 2 on-robot stack (real hardware)
 mujoco_demo/     standalone MuJoCo demo — its own uv project, no ROS, no GPU needed
-scripts/         eval_habitat.sh, eval_evt_bench.sh, start_servers.sh, smoke_gpu.sh
+scripts/         eval/ (Habitat/R2R/RxR/EVT), start_servers.sh, smoke_gpu.sh
 tests/           CPU-only, fake engines and synthetic tokens
 ```
 

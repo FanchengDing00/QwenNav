@@ -139,22 +139,22 @@ undecodable output) maps to zero speed, which Habitat treats as STOP and ends th
 
 ## 3. Parallel evaluation (one shard per GPU)
 
-`scripts/eval_habitat.sh` does the whole thing on the local GPUs: one env server + one
+`scripts/eval/eval_habitat.sh` does the whole thing on the local GPUs: one env server + one
 eval client per GPU (the model and the simulator share the GPU), each on a disjoint shard
 of the split, then a merge of the shards into one `summary.json`:
 
 ```bash
 # R2R on every visible GPU
-MODEL_PATH=/path/to/checkpoint bash scripts/eval_habitat.sh
+MODEL_PATH=/path/to/checkpoint bash scripts/eval/eval_habitat.sh
 # RxR (English) on GPUs 0 and 1
 MODEL_PATH=/path/to/checkpoint HABITAT_CONFIG=habitat_server/configs/vlnce_rxr.yaml \
-    LANGUAGES="en-US en-IN" GPU_IDS="0 1" bash scripts/eval_habitat.sh
+    LANGUAGES="en-US en-IN" GPU_IDS="0 1" bash scripts/eval/eval_habitat.sh
 # MP3D ObjectNav v1
 MODEL_PATH=/path/to/checkpoint TASK=objectnav HABITAT_CONFIG=habitat_server/configs/objectnav_mp3d.yaml \
-    SPLIT=val bash scripts/eval_habitat.sh
+    SPLIT=val bash scripts/eval/eval_habitat.sh
 # HM3D-OVON (SPLIT=val_seen / val_seen_synonyms / val_unseen)
 MODEL_PATH=/path/to/checkpoint TASK=objectnav HABITAT_CONFIG=habitat_server/configs/objectnav_ovon.yaml \
-    SPLIT=val_unseen SUCCESS_DISTANCE=0.25 bash scripts/eval_habitat.sh
+    SPLIT=val_unseen SUCCESS_DISTANCE=0.25 bash scripts/eval/eval_habitat.sh
 ```
 
 Knobs (env vars, see the script header): `GPU_IDS` / `NUM_GPUS` (default: all GPUs from

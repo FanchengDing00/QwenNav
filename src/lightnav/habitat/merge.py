@@ -1,6 +1,6 @@
 """Merge the per-shard outputs of a parallel Habitat evaluation into one summary.
 
-``scripts/eval_habitat.sh`` runs one env server + one eval client per GPU, each on a
+``scripts/eval/eval_habitat.sh`` runs one env server + one eval client per GPU, each on a
 disjoint shard of the split (``--split-id i --split-num N``) and each writing its own
 ``results.jsonl`` / ``summary.json``. Every metric in a summary is an unweighted
 per-episode mean, so the merged numbers are simply the summary of the concatenated

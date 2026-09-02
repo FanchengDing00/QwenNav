@@ -36,21 +36,22 @@
 #   INFER_VENV           lightnav virtualenv (default <repo>/.venv), or
 #   CLIENT_PYTHON        explicit interpreter for the eval client
 #   # ---- output ----
-#   OUTPUT_ROOT          default output/habitat_<task>_<timestamp>; shards in shard_<i>/
+#   OUTPUT_ROOT          default output/habitat_<task>/<checkpoint>/<benchmark>;
+#                        shards in shard_<i>/
 #   LOG_DIR              default $OUTPUT_ROOT/logs
 #
 # Examples:
-#   MODEL_PATH=/path/to/checkpoint bash scripts/eval_habitat.sh                 # R2R on every GPU
+#   MODEL_PATH=/path/to/checkpoint bash scripts/eval/eval_habitat.sh            # R2R on every GPU
 #   MODEL_PATH=... HABITAT_CONFIG=habitat_server/configs/vlnce_rxr.yaml LANGUAGES="en-US en-IN" \
-#       GPU_IDS="0 1" bash scripts/eval_habitat.sh                              # RxR on 2 GPUs
+#       GPU_IDS="0 1" bash scripts/eval/eval_habitat.sh                         # RxR on 2 GPUs
 #   MODEL_PATH=... TASK=objectnav HABITAT_CONFIG=habitat_server/configs/objectnav_ovon.yaml \
-#       SPLIT=val_unseen SUCCESS_DISTANCE=0.25 bash scripts/eval_habitat.sh      # HM3D-OVON
+#       SPLIT=val_unseen SUCCESS_DISTANCE=0.25 bash scripts/eval/eval_habitat.sh # HM3D-OVON
 #   MODEL_PATH=... TASK=objectnav HABITAT_CONFIG=habitat_server/configs/objectnav_mp3d.yaml \
-#       SPLIT=val bash scripts/eval_habitat.sh                                    # MP3D v1
+#       SPLIT=val bash scripts/eval/eval_habitat.sh                              # MP3D v1
 set -euo pipefail
 
 TAG="[eval_habitat]"
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # ── model ────────────────────────────────────────────────────────────────────
 MODEL_PATH=${MODEL_PATH:?set MODEL_PATH to the checkpoint dir}
@@ -148,10 +149,19 @@ PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" "$CLIENT_PYTHON" -c "impo
     echo "$TAG ERROR: $CLIENT_PYTHON cannot import lightnav (+ pyzmq): pip install -e '.[habitat]'" >&2; exit 1; }
 
 # ── output ───────────────────────────────────────────────────────────────────
-TS=$(date +%Y%m%d_%H%M%S)
-OUTPUT_ROOT=${OUTPUT_ROOT:-$REPO_ROOT/output/habitat_${TASK}_${TS}}
+CHECKPOINT_NAME=$(basename "${MODEL_PATH%/}")
+CONFIG_NAME=$(basename "$HABITAT_CONFIG" .yaml)
+BENCHMARK_NAME=${CONFIG_NAME#vlnce_}
+BENCHMARK_NAME=${BENCHMARK_NAME#objectnav_}
+OUTPUT_ROOT=${OUTPUT_ROOT:-$REPO_ROOT/output/habitat_${TASK}/$CHECKPOINT_NAME/$BENCHMARK_NAME}
 LOG_DIR=${LOG_DIR:-$OUTPUT_ROOT/logs}
 READY_DIR="$OUTPUT_ROOT/.ready"
+
+if [ -e "$OUTPUT_ROOT" ] || [ -L "$OUTPUT_ROOT" ]; then
+    echo "$TAG ERROR: output path already exists; refusing to overwrite previous results: $OUTPUT_ROOT" >&2
+    exit 1
+fi
+
 mkdir -p "$OUTPUT_ROOT" "$LOG_DIR" "$READY_DIR"
 rm -f "$READY_DIR"/*.ready
 
@@ -161,8 +171,12 @@ echo "$TAG gpus=(${GPUS[*]}) shards=$N base_port=$BASE_PORT output=$OUTPUT_ROOT"
 # ── cleanup ──────────────────────────────────────────────────────────────────
 SERVER_PIDS=()
 CLIENT_PIDS=()
+PROGRESS_PID=""
+PROGRESS_STOP_FILE="$READY_DIR/progress.stop"
 cleanup() {
     echo "$TAG cleaning up..."
+    touch "$PROGRESS_STOP_FILE" 2>/dev/null || true
+    [ -n "$PROGRESS_PID" ] && kill "$PROGRESS_PID" 2>/dev/null || true
     for pid in "${CLIENT_PIDS[@]:-}" "${SERVER_PIDS[@]:-}"; do
         [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
     done
@@ -246,13 +260,46 @@ for ((i = 0; i < N; i++)); do
     CLIENT_PIDS+=("$!")
 done
 
+# Keep client stdout/stderr in the existing per-shard logs. A separate Python/tqdm
+# monitor displays completion counts without reading metrics or changing eval state.
+TOTAL_EPISODES=0
+case "$BENCHMARK_NAME" in
+    r2r) TOTAL_EPISODES=1839 ;;
+    rxr) TOTAL_EPISODES=3669 ;;
+esac
+if [[ -t 2 && "$TASK" = "vlnce" && "$TOTAL_EPISODES" -gt 0 ]]; then
+    "$CLIENT_PYTHON" -m lightnav.cli.eval_progress \
+        --output-root "$OUTPUT_ROOT" \
+        --num-shards "$N" \
+        --total-episodes "$TOTAL_EPISODES" \
+        --per-shard-limit "$EPISODES" \
+        --stop-file "$PROGRESS_STOP_FILE" \
+        --poll-seconds 2 &
+    PROGRESS_PID=$!
+fi
+
 FAILED=0
+CLIENT_SUCCEEDED=()
 for ((i = 0; i < N; i++)); do
     if wait "${CLIENT_PIDS[$i]}"; then
+        CLIENT_SUCCEEDED+=(1)
+    else
+        CLIENT_SUCCEEDED+=(0)
+        FAILED=$((FAILED + 1))
+    fi
+done
+
+if [ -n "$PROGRESS_PID" ]; then
+    touch "$PROGRESS_STOP_FILE"
+    wait "$PROGRESS_PID" 2>/dev/null || true
+    PROGRESS_PID=""
+fi
+
+for ((i = 0; i < N; i++)); do
+    if (( CLIENT_SUCCEEDED[i] )); then
         echo "$TAG shard $i finished"
     else
         echo "$TAG WARN: shard $i client exited with an error (see $LOG_DIR/client_*_shard${i}.log)" >&2
-        FAILED=$((FAILED + 1))
     fi
 done
 

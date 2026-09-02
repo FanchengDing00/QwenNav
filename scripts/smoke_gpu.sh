@@ -5,7 +5,7 @@
 #   1. predict-hf        lightnav-predict --backend hf on a few frames
 #   2. predict-vllm      lightnav-predict --backend vllm_local (vLLM 0.19.1 patch under the real install)
 #   3. serve+client      lightnav-serve (--record_dir) + lightnav-ws-client, then lightnav-render
-#   4. habitat-eval      scripts/eval_habitat.sh with EPISODES=1 on one GPU   (needs the habitat env + data)
+#   4. habitat-eval      scripts/eval/eval_habitat.sh with EPISODES=1 on one GPU (needs the habitat env + data)
 #   5. evt-bench         one EVT-Bench shard against the server from step 3   (needs an EVT-Bench checkout)
 #
 # Steps 4 and 5 are skipped unless their prerequisites are configured.
@@ -22,7 +22,7 @@
 #   INFER_VENV               lightnav virtualenv (default <repo>/.venv)
 #   # ---- step 4 (Habitat) ----
 #   HABITAT_CONFIG, HABITAT_TASK (vlnce|objectnav), HABITAT_SPLIT, SUCCESS_DISTANCE, DATA_PATH, SCENES_DIR,
-#   HABITAT_CONDA_ENV / HABITAT_PYTHON      (see scripts/eval_habitat.sh); set HABITAT_CONFIG to enable
+#   HABITAT_CONDA_ENV / HABITAT_PYTHON      (see scripts/eval/eval_habitat.sh); set HABITAT_CONFIG to enable
 #   # ---- step 5 (EVT-Bench) ----
 #   EVT_BENCH_REPO, EVT_CONDA_ENV / EVT_PYTHON, EVT_VARIANT (default dt); set EVT_BENCH_REPO to enable
 #   OUTPUT_ROOT              default output/smoke_<timestamp>
@@ -157,7 +157,7 @@ if [ -n "${HABITAT_CONFIG:-}" ]; then
             ACTION_TOKENIZER_BUNDLE="$ACTION_TOKENIZER_BUNDLE" CLIENT_ARGS="--save_video" \
             OUTPUT_ROOT="$OUTPUT_ROOT/habitat" INFER_VENV="$INFER_VENV" \
             ${HABITAT_CONDA_ENV+HABITAT_CONDA_ENV="$HABITAT_CONDA_ENV"} ${HABITAT_PYTHON+HABITAT_PYTHON="$HABITAT_PYTHON"} \
-            bash "$REPO_ROOT/scripts/eval_habitat.sh"
+            bash "$REPO_ROOT/scripts/eval/eval_habitat.sh"
     [ -f "$OUTPUT_ROOT/habitat/summary.json" ] && grep -m1 '"table_format"' "$OUTPUT_ROOT/habitat/summary.json" | sed "s/^/$TAG    /"
 else
     RESULT[habitat-eval]=SKIP; echo "$TAG ── habitat-eval  SKIP (set HABITAT_CONFIG to enable)"

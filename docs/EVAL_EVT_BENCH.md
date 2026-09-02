@@ -93,7 +93,7 @@ MODEL_PATH=/path/to/checkpoint \
 NUM_GPUS=2 SERVERS_PER_GPU=4 \
 EVT_BENCH_REPO=$HOME/EVT-Bench EVT_CONDA_ENV=evt_bench \
 TASK_VARIANTS="dt" \
-bash scripts/eval_evt_bench.sh
+bash scripts/eval/eval_evt_bench.sh
 ```
 
 The script calls [`scripts/start_servers.sh`](../scripts/start_servers.sh) (one
@@ -104,7 +104,7 @@ the per-port `.ready` files, then runs `run.py` for shard `0..CHUNKS-1` in waves
 server `i % TOTAL_SERVERS` and renders on that server's GPU
 (`CUDA_VISIBLE_DEVICES`).  Servers are killed when the script exits.
 
-All knobs are environment variables; the header of `scripts/eval_evt_bench.sh`
+All knobs are environment variables; the header of `scripts/eval/eval_evt_bench.sh`
 lists them.  The important ones:
 
 | Variable | Default | Meaning |

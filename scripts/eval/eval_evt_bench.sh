@@ -44,7 +44,7 @@
 # Example:
 #   MODEL_PATH=/path/to/checkpoint \
 #   NUM_GPUS=2 SERVERS_PER_GPU=4 EVT_JAW_HFOV=120 \
-#   bash scripts/eval_evt_bench.sh
+#   bash scripts/eval/eval_evt_bench.sh
 set -euo pipefail
 
 TAG="[eval_evt_bench]"
@@ -79,7 +79,7 @@ OUTPUT_ROOT=${OUTPUT_ROOT:-$EVT_BENCH_REPO/exp_results/lightnav_${TIMESTAMP}}
 LOG_DIR=${LOG_DIR:-$OUTPUT_ROOT/logs}
 
 # ── paths (this repo) ────────────────────────────────────────────────────────
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 START_SH="$REPO_ROOT/scripts/start_servers.sh"
 PATCH_PY="$REPO_ROOT/evt_bench/patch_task_config.py"
 PID_FILE="$REPO_ROOT/.servers.pids"      # lines: "<pid> <port> <gpu>"
