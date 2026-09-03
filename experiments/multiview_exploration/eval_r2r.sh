@@ -1,21 +1,28 @@
 #!/usr/bin/env bash
-# Independent parallel R2R evaluation for the disposable three-view experiment.
+# Independent parallel R2R evaluation for the disposable real-rotation experiment.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-if (( $# != 1 )); then
-    echo "Usage: $0 CHECKPOINT_DIR" >&2
+if (( $# < 1 )); then
+    echo "Usage: $0 CHECKPOINT_DIR [R2R_SUFFIX] [--action-interval N] [--reference|--no-reference] [--reference-threshold-m METRES] [--initial-360|--no-initial-360]" >&2
     exit 2
 fi
 
 # Experiment variables. The periodic and reference triggers are combined with OR.
 MODEL_PATH="$1"
-STEP_INTERVAL=5              # 1 = three views at every model step; 0 = disabled
+shift
+R2R_SUFFIX=""
+if (( $# > 0 )) && [[ "$1" != --* ]]; then
+    R2R_SUFFIX="$1"
+    shift
+fi
+ACTION_INTERVAL=5            # measured in every env.step; 0 = disabled
 REFERENCE_ENABLED=true       # true / false
-REFERENCE_THRESHOLD_M=0.75
+REFERENCE_THRESHOLD_M=0.5
+INITIAL_360_ENABLED=true
 ORDER_SEED=0
 MAX_STEPS=500
 EPISODES=-1
@@ -24,34 +31,78 @@ BASE_PORT=5655
 READY_TIMEOUT_S=900
 SAVE_VIDEO=true
 
+while (( $# > 0 )); do
+    case "$1" in
+        --action-interval)
+            (( $# >= 2 )) || { echo "[multiview_eval] ERROR: $1 needs a value" >&2; exit 2; }
+            ACTION_INTERVAL="$2"
+            shift 2
+            ;;
+        --reference)
+            REFERENCE_ENABLED=true
+            shift
+            ;;
+        --no-reference)
+            REFERENCE_ENABLED=false
+            shift
+            ;;
+        --reference-threshold-m)
+            (( $# >= 2 )) || { echo "[multiview_eval] ERROR: $1 needs a value" >&2; exit 2; }
+            REFERENCE_THRESHOLD_M="$2"
+            shift 2
+            ;;
+        --initial-360)
+            INITIAL_360_ENABLED=true
+            shift
+            ;;
+        --no-initial-360)
+            INITIAL_360_ENABLED=false
+            shift
+            ;;
+        *)
+            echo "[multiview_eval] ERROR: unknown argument: $1" >&2
+            exit 2
+            ;;
+    esac
+done
+
 HABITAT_CONFIG="$REPO_ROOT/experiments/multiview_exploration/configs/vlnce_r2r_multiview.yaml"
 HABITAT_ENV=qwennav_habitat
 CONDA_SH=/opt/anaconda3/etc/profile.d/conda.sh
 CLIENT_PYTHON="$HOME/.conda/envs/qwennav_model/bin/python"
-CHECKPOINT_NAME=$(basename "${MODEL_PATH%/}")
+CHECKPOINT_NAME="$(basename "${MODEL_PATH%/}")_mv"
 
-if (( STEP_INTERVAL < 0 )); then
-    echo "[multiview_eval] ERROR: STEP_INTERVAL must be >= 0" >&2
+if ! [[ "$ACTION_INTERVAL" =~ ^[0-9]+$ ]]; then
+    echo "[multiview_eval] ERROR: ACTION_INTERVAL must be a non-negative integer" >&2
     exit 2
 fi
+ACTION_INTERVAL=$((10#$ACTION_INTERVAL))
 case "$REFERENCE_ENABLED" in true|false) ;; *)
     echo "[multiview_eval] ERROR: REFERENCE_ENABLED must be true or false" >&2
     exit 2
 esac
-if (( STEP_INTERVAL == 0 )) && [[ "$REFERENCE_ENABLED" == false ]]; then
-    echo "[multiview_eval] ERROR: both exploration triggers are disabled" >&2
+case "$INITIAL_360_ENABLED" in true|false) ;; *)
+    echo "[multiview_eval] ERROR: INITIAL_360_ENABLED must be true or false" >&2
+    exit 2
+esac
+if ! [[ "$REFERENCE_THRESHOLD_M" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)$ ]] \
+    || [[ "$REFERENCE_THRESHOLD_M" =~ ^0*([.]0*)?$ ]]; then
+    echo "[multiview_eval] ERROR: reference threshold must be a positive number" >&2
+    exit 2
+fi
+if (( ACTION_INTERVAL == 0 )) && [[ "$REFERENCE_ENABLED" == false ]] && [[ "$INITIAL_360_ENABLED" == false ]]; then
+    echo "[multiview_eval] ERROR: all exploration features are disabled" >&2
     exit 2
 fi
 
-if (( STEP_INTERVAL > 0 )) && [[ "$REFERENCE_ENABLED" == true ]]; then
-    CONDITION="interval_${STEP_INTERVAL}_or_reference_thr_${REFERENCE_THRESHOLD_M}_seed_${ORDER_SEED}"
-elif (( STEP_INTERVAL > 0 )); then
-    CONDITION="interval_${STEP_INTERVAL}_seed_${ORDER_SEED}"
-else
-    CONDITION="reference_thr_${REFERENCE_THRESHOLD_M}_seed_${ORDER_SEED}"
+if [[ -n "$R2R_SUFFIX" ]] && ! [[ "$R2R_SUFFIX" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+    echo "[multiview_eval] ERROR: R2R_SUFFIX may contain only letters, digits, '.', '_' and '-'" >&2
+    exit 2
 fi
-CONDITION=${CONDITION//./p}
-OUTPUT_ROOT="$REPO_ROOT/experiments/multiview_exploration/output/$CHECKPOINT_NAME/r2r/$CONDITION"
+R2R_DIR="r2r"
+[[ -n "$R2R_SUFFIX" ]] && R2R_DIR="r2r_${R2R_SUFFIX}"
+
+OUTPUT_ROOT="$REPO_ROOT/experiments/multiview_exploration/output/$CHECKPOINT_NAME/$R2R_DIR"
 LOG_DIR="$OUTPUT_ROOT/logs"
 READY_DIR="$OUTPUT_ROOT/.ready"
 
@@ -90,6 +141,31 @@ if [[ -e "$OUTPUT_ROOT" ]]; then
 fi
 mkdir -p "$LOG_DIR" "$READY_DIR"
 
+"$CLIENT_PYTHON" -c '
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+config = {
+    "experiment": "real_rotation_exploration",
+    "benchmark": "r2r",
+    "checkpoint": sys.argv[2],
+    "result_directory": sys.argv[3],
+    "action_interval": int(sys.argv[4]),
+    "reference_enabled": sys.argv[5] == "true",
+    "reference_threshold_m": float(sys.argv[6]),
+    "initial_360_enabled": sys.argv[7] == "true",
+    "order_seed": int(sys.argv[8]),
+    "max_steps": int(sys.argv[9]),
+    "episodes_per_shard": int(sys.argv[10]),
+    "save_video": sys.argv[11] == "true",
+}
+path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+' "$OUTPUT_ROOT/config.json" "$MODEL_PATH" "$R2R_DIR" "$ACTION_INTERVAL" \
+    "$REFERENCE_ENABLED" "$REFERENCE_THRESHOLD_M" "$INITIAL_360_ENABLED" \
+    "$ORDER_SEED" "$MAX_STEPS" "$EPISODES" "$SAVE_VIDEO"
+
 set +u
 # shellcheck disable=SC1090
 source "$CONDA_SH"
@@ -113,7 +189,11 @@ trap cleanup EXIT INT TERM
 
 echo "[multiview_eval] checkpoint: $MODEL_PATH"
 echo "[multiview_eval] GPUs:       ${GPUS[*]}"
-echo "[multiview_eval] condition:  $CONDITION"
+echo "[multiview_eval] dataset dir: $R2R_DIR"
+echo "[multiview_eval] interval:   $ACTION_INTERVAL actions"
+echo "[multiview_eval] reference:  $REFERENCE_ENABLED"
+echo "[multiview_eval] initial360: $INITIAL_360_ENABLED"
+echo "[multiview_eval] ref radius: $REFERENCE_THRESHOLD_M m"
 echo "[multiview_eval] output:     $OUTPUT_ROOT"
 
 for ((i=0; i<N; i++)); do
@@ -146,23 +226,19 @@ while :; do
     sleep 2
 done
 
-targets=()
-if (( EPISODES > 0 )); then
-    for ((i=0; i<N; i++)); do targets+=("$EPISODES"); done
-else
-    chunk=$((1839/N))
-    for ((i=0; i<N; i++)); do
-        if (( i < N-1 )); then targets+=("$chunk"); else targets+=("$((1839-chunk*(N-1)))"); fi
-    done
-fi
 PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" \
     "$CLIENT_PYTHON" -m lightnav.cli.eval_progress \
-    --output-root "$OUTPUT_ROOT" --targets "${targets[@]}" \
+    --output-root "$OUTPUT_ROOT" \
+    --num-shards "$N" \
+    --total-episodes 1839 \
+    --per-shard-limit "$EPISODES" \
     --stop-file "$READY_DIR/progress.stop" &
 PROGRESS_PID=$!
 
 reference_flag=--exploration-reference
 [[ "$REFERENCE_ENABLED" == true ]] || reference_flag=--no-exploration-reference
+initial_flag=--initial-360
+[[ "$INITIAL_360_ENABLED" == true ]] || initial_flag=--no-initial-360
 video_args=()
 if [[ "$SAVE_VIDEO" == true ]]; then
     video_args=(--save_video --video_dir "$OUTPUT_ROOT/videos" --video_episode_count 1839)
@@ -180,8 +256,9 @@ for ((i=0; i<N; i++)); do
         --backend vllm_local --episodes "$EPISODES" --max_steps "$MAX_STEPS" \
         --output_dir "$shard_dir" --gpu_memory_utilization "$GPU_MEM_UTIL" \
         "${video_args[@]}" \
-        --exploration-step-interval "$STEP_INTERVAL" "$reference_flag" \
+        --exploration-action-interval "$ACTION_INTERVAL" "$reference_flag" \
         --reference-threshold-m "$REFERENCE_THRESHOLD_M" \
+        "$initial_flag" \
         --exploration-order-seed "$ORDER_SEED" >"$log" 2>&1 &
     CLIENT_PIDS+=("$!")
 done

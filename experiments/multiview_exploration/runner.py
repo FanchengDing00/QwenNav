@@ -1,4 +1,4 @@
-"""Independent Habitat evaluation loop for the multiview exploration experiment."""
+"""Independent Habitat evaluation loop for real-action visual exploration."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import os
 import time
 from dataclasses import asdict
 from typing import Any
+
+import numpy as np
 
 from lightnav.habitat.policy import extract_instruction
 from lightnav.habitat.results import make_json_safe, print_vlnce_summary
@@ -20,21 +22,35 @@ from lightnav.habitat.runner import (
     build_velocity_policy,
 )
 
-from .exploration import ExplorationConfig, ExplorationPolicyAdapter
+from .exploration import (
+    ExplorationConfig,
+    ExplorationController,
+    ScanRequest,
+    rotation_action,
+    rotation_plan,
+)
+
+
+def _rotation_policy_info(turn_sign: int, config: ExplorationConfig) -> dict[str, Any]:
+    """Give the normal visualizer a one-step yaw waypoint for rotation frames."""
+    yaw = np.deg2rad(turn_sign * config.rotation_step_degrees)
+    return {
+        "predicted_traj": np.asarray([[0.0, 0.0, yaw]], dtype=np.float32),
+        "raw_text": f"explore_rotate_{'left' if turn_sign > 0 else 'right'}",
+    }
 
 
 def run_multiview_eval(
     cfg: HabitatEvalConfig,
     exploration_cfg: ExplorationConfig,
 ) -> list[dict[str, Any]]:
-    """Run a fresh eval loop while reusing the untouched LightNav engine and policy."""
+    """Run an isolated eval loop while keeping the LightNav policy untouched."""
     output_dir = cfg.output_dir
     os.makedirs(output_dir, exist_ok=True)
     results_jsonl = os.path.join(output_dir, "results.jsonl")
     manifest = {
-        "experiment": "multiview_exploration",
-        "camera_yaws_deg": [-60, 0, 60],
-        "front_frame_is_last": True,
+        "experiment": "real_rotation_exploration",
+        "observation_camera": "official_front_rgb_only",
         "exploration": asdict(exploration_cfg),
         "model_path": cfg.model_path,
         "backend": cfg.backend,
@@ -50,14 +66,16 @@ def run_multiview_eval(
     env = _default_env_factory(cfg)
 
     print("\n" + "=" * 68)
-    print("Multiview Exploration Evaluation (left/right +/-60 deg; front last)")
+    print("Real Rotation Exploration Evaluation (left/right 90 deg; return front)")
     print("=" * 68)
     print(f"  Model:               {cfg.model_path}")
     print(f"  Server:              {cfg.server}")
     print(f"  Episodes:            {cfg.episodes if cfg.episodes > 0 else 'full split'}")
-    print(f"  Step interval:       {exploration_cfg.step_interval or 'disabled'}")
+    print(f"  Action interval:     {exploration_cfg.action_interval or 'disabled'}")
     print(f"  Reference trigger:   {exploration_cfg.reference_enabled}")
     print(f"  Reference threshold: {exploration_cfg.reference_threshold_m:.2f} m")
+    print(f"  Initial 360 scan:    {exploration_cfg.initial_360_enabled}")
+    print(f"  Rotation action:     {exploration_cfg.rotation_step_degrees} deg")
     print(f"  Order seed:          {exploration_cfg.order_seed}")
     print(f"  Output:              {output_dir}")
     print("=" * 68 + "\n", flush=True)
@@ -67,7 +85,7 @@ def run_multiview_eval(
     seen: set[tuple[Any, Any]] = set()
     skipped_lang = 0
     n_run = 0
-    policy: ExplorationPolicyAdapter | None = None
+    policy: Any = None
     start_time = time.time()
 
     try:
@@ -93,58 +111,127 @@ def run_multiview_eval(
             )
             instruction = extract_instruction(obs)
             if policy is None:
-                base_policy = build_velocity_policy(cfg, engine, bundle, info)
-                policy = ExplorationPolicyAdapter(base_policy, exploration_cfg)
-            policy.reset(obs, info)
+                policy = build_velocity_policy(cfg, engine, bundle, info)
+            policy.reset(obs)
+            controller = ExplorationController(exploration_cfg)
+            controller.reset(info)
             if viz is not None:
                 viz.begin_episode(str(habitat_ep_id))
 
             final_success: Any = False
             forced_stop_used = False
             min_distance_to_goal = float("inf")
-            step = -1
+            action_step = 0
+            navigation_actions = 0
+            exploration_suppressed_for_budget = False
             video_rel: str | None = None
+            episode_done = False
+
             try:
-                for step in range(cfg.max_steps):
+                while action_step < cfg.max_steps:
                     if obs.get("rgb") is None:
                         break
-                    t_act = time.monotonic()
+
+                    request: ScanRequest | None = None
+                    if not exploration_suppressed_for_budget:
+                        request = controller.request(action_step, info)
+                    if request is not None:
+                        plan = rotation_plan(request, exploration_cfg)
+                        # Reserve one final action for the policy (or forced STOP).
+                        if action_step + len(plan) < cfg.max_steps:
+                            scan_start = action_step
+                            # The current forward view belongs to the scan. Intermediate
+                            # rotation results are observed below; the final forward frame
+                            # remains for the unchanged policy.act call.
+                            policy.observe(obs, info)
+                            inserted_frames = 1
+                            for plan_index, turn_sign in enumerate(plan):
+                                action = rotation_action(policy, turn_sign, exploration_cfg)
+                                if cfg.verbose:
+                                    print(
+                                        f"    Action {action_step}: explore "
+                                        f"{request.direction} {_format_action(action)}",
+                                        flush=True,
+                                    )
+                                if viz is not None:
+                                    viz.step(
+                                        obs["rgb"],
+                                        step=action_step,
+                                        instruction=instruction,
+                                        policy_info=_rotation_policy_info(
+                                            turn_sign, exploration_cfg
+                                        ),
+                                        latency_ms=0.0,
+                                        episode_id=episode_id,
+                                        habitat_episode_id=str(habitat_ep_id),
+                                        scene_id=str(habitat_scene_id),
+                                        exploration=True,
+                                    )
+                                obs, _reward, terminated, truncated, info = env.step(action)
+                                action_step += 1
+                                dtg = _safe_scalar(
+                                    info.get("distance_to_goal"), default=float("inf")
+                                )
+                                min_distance_to_goal = min(min_distance_to_goal, dtg)
+                                if terminated or truncated:
+                                    final_success = info.get("success", False)
+                                    episode_done = True
+                                    break
+                                if plan_index < len(plan) - 1:
+                                    policy.observe(obs, info)
+                                    inserted_frames += 1
+
+                            controller.complete_scan(
+                                request,
+                                start_action_step=scan_start,
+                                end_action_step=action_step,
+                                inserted_frame_count=inserted_frames,
+                            )
+                            if episode_done:
+                                break
+                        else:
+                            # Do not start a scan that cannot return to front before the
+                            # episode limit. Continue normal navigation for the remainder.
+                            exploration_suppressed_for_budget = True
+
                     forced_stop = bool(
                         cfg.force_stop_at_max_steps
-                        and step == cfg.max_steps - 1
+                        and action_step == cfg.max_steps - 1
                         and hasattr(policy, "stop_action")
                     )
+                    t_act = time.monotonic()
                     if forced_stop:
                         action = policy.stop_action()
                         forced_stop_used = True
                     else:
-                        action = policy.act(obs, info, step)
+                        action = policy.act(obs, info)
                     act_ms = (time.monotonic() - t_act) * 1000.0
+                    navigation_actions += 1
 
                     policy_info: dict[str, Any] = {}
                     if cfg.verbose or viz is not None:
                         policy_info = policy.get_info()
                     if cfg.verbose:
-                        event = policy_info.get("last_exploration_event")
                         print(
-                            f"    Step {step}: {_format_action(action)}"
-                            f" explore={event if event and event.get('step') == step else None}"
-                            f" raw={policy_info.get('raw_text', '')!r}",
+                            f"    Action {action_step}: {_format_action(action)} "
+                            f"raw={policy_info.get('raw_text', '')!r}",
                             flush=True,
                         )
                     if viz is not None:
                         viz.step(
                             obs["rgb"],
-                            step=step,
+                            step=action_step,
                             instruction=instruction,
                             policy_info=policy_info,
                             latency_ms=act_ms,
                             episode_id=episode_id,
                             habitat_episode_id=str(habitat_ep_id),
                             scene_id=str(habitat_scene_id),
+                            exploration=False,
                         )
 
                     obs, _reward, terminated, truncated, info = env.step(action)
+                    action_step += 1
                     dtg = _safe_scalar(info.get("distance_to_goal"), default=float("inf"))
                     min_distance_to_goal = min(min_distance_to_goal, dtg)
                     if terminated or truncated:
@@ -152,7 +239,7 @@ def run_multiview_eval(
                         break
 
                 if viz is not None and obs.get("rgb") is not None:
-                    viz.final_frame(obs["rgb"], step=step + 1, instruction=instruction)
+                    viz.final_frame(obs["rgb"], step=action_step, instruction=instruction)
             finally:
                 if viz is not None:
                     video_rel = viz.end_episode(success=bool(final_success))
@@ -174,14 +261,15 @@ def run_multiview_eval(
                 "spl": info.get("spl", 0.0),
                 "ndtw": info.get("ndtw", 0.0),
                 "soft_spl": float(info.get("soft_spl", 0.0)),
-                "steps": step + 1,
+                "steps": action_step,
+                "navigation_actions": navigation_actions,
                 "final_distance": info.get("distance_to_goal", float("inf")),
                 "min_distance": min_distance_to_goal,
                 "instruction": instruction,
                 "termination_reason": info.get("termination_reason", "unknown"),
                 "forced_stop": forced_stop_used,
                 "termination_details": info.get("termination_details", {}),
-                "exploration": policy.get_episode_stats(),
+                "exploration": controller.get_episode_stats(),
             }
             if video_rel is not None:
                 result["video"] = video_rel
@@ -195,8 +283,8 @@ def run_multiview_eval(
             print(
                 f"  [{status}] success={bool(result['success'])}, "
                 f"SPL={float(result['spl']):.3f}, NDTW={float(result['ndtw']):.3f}, "
-                f"steps={result['steps']}, "
-                f"explorations={result['exploration']['exploration_event_count']}",
+                f"actions={result['steps']}, navigation={navigation_actions}, "
+                f"rotations={result['exploration']['rotation_action_count']}",
                 flush=True,
             )
             n_run += 1
@@ -216,7 +304,7 @@ def run_multiview_eval(
     extra_info = {
         "model": cfg.model_path,
         "backend": cfg.backend,
-        "experiment": "multiview_exploration",
+        "experiment": "real_rotation_exploration",
         "exploration_config": asdict(exploration_cfg),
     }
     print_vlnce_summary(results, elapsed, output_dir, extra_info=extra_info)

@@ -1,4 +1,4 @@
-"""Serve the experiment-only three-view R2R Habitat environment over ZeroMQ."""
+"""Serve the experiment-only real-rotation R2R environment over ZeroMQ."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import os
 
 from lightnav_habitat.remote_server import RemoteEnvServer
 
-from .env import MultiviewVLNCEEnv
+from .env import ExplorationVLNCEEnv
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -41,7 +41,7 @@ def main() -> None:
     if args.split_id is not None:
         kwargs.update(split_id=args.split_id, split_num=args.split_num)
 
-    env = MultiviewVLNCEEnv(**kwargs)
+    env = ExplorationVLNCEEnv(**kwargs)
     RemoteEnvServer(env, address=f"tcp://*:{args.port}").start(ready_file=args.ready_file)
 
 

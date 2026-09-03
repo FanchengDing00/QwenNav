@@ -1,14 +1,12 @@
 # @package _global_
-# Experiment-only R2R config. The official front RGB/depth sensors are unchanged;
-# two RGB sensors render the same pose at yaw offsets of +/-60 degrees.
+# Experiment-only R2R config. Exploration uses real velocity-control rotations;
+# the simulator exposes only the same official front RGB/depth sensors as normal eval.
 
 defaults:
   - /habitat: habitat_config_base
   - /habitat/task: vln_r2r
   - /habitat/task/actions@habitat.task.actions.velocity_control: velocity_control
   - /habitat/simulator/sensor_setups@habitat.simulator.agents.main_agent: rgbd_agent
-  - /habitat/simulator/sim_sensors@habitat.simulator.agents.main_agent.sim_sensors.rgb_left_sensor: rgb_sensor
-  - /habitat/simulator/sim_sensors@habitat.simulator.agents.main_agent.sim_sensors.rgb_right_sensor: rgb_sensor
   - /habitat/dataset: dataset_config_schema
   - _self_
 
@@ -47,20 +45,6 @@ habitat:
             hfov: 120
             type: HabitatSimDepthSensor
             position: [0, 0.88, 0]
-          rgb_left_sensor:
-            width: 480
-            height: 270
-            hfov: 120
-            type: ExplorationLeftRGBSensor
-            position: [0, 0.88, 0]
-            orientation: [0, 1.0471975512, 0]
-          rgb_right_sensor:
-            width: 480
-            height: 270
-            hfov: 120
-            type: ExplorationRightRGBSensor
-            position: [0, 0.88, 0]
-            orientation: [0, -1.0471975512, 0]
     forward_step_size: 0.25
     turn_angle: 15
     habitat_sim_v0:

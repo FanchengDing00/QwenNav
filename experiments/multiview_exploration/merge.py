@@ -1,4 +1,4 @@
-"""Merge experiment shards and retain exploration configuration/statistics."""
+"""Merge real-rotation experiment shards and retain exploration statistics."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def main() -> int:
 
     events = [event for record in records for event in record.get("exploration", {}).get("events", [])]
     reason_counts = Counter(reason for event in events for reason in event.get("reasons", []))
-    order_counts = Counter("->".join(event.get("auxiliary_order", [])) for event in events)
+    direction_counts = Counter(event.get("direction", "unknown") for event in events)
     total_aux = sum(
         int(record.get("exploration", {}).get("auxiliary_frame_count", 0))
         for record in records
@@ -37,18 +37,23 @@ def main() -> int:
         len(record.get("exploration", {}).get("reached_reference_indices", []))
         for record in records
     )
+    total_rotations = sum(
+        int(record.get("exploration", {}).get("rotation_action_count", 0))
+        for record in records
+    )
     n = len(records)
     extra = {
-        "experiment": "multiview_exploration",
-        "camera_yaws_deg": [-60, 0, 60],
+        "experiment": "real_rotation_exploration",
+        "observation_camera": "official_front_rgb_only",
         "exploration_config": configs[0].get("exploration", {}) if configs else {},
         "exploration_stats": {
             "total_events": len(events),
             "avg_events_per_episode": round(len(events) / n, 3) if n else 0.0,
             "total_auxiliary_frames": total_aux,
+            "total_rotation_actions": total_rotations,
             "total_reached_reference_points": total_reached,
             "event_reason_counts": dict(reason_counts),
-            "auxiliary_order_counts": dict(order_counts),
+            "direction_counts": dict(direction_counts),
         },
     }
     merge_results(shard_dirs, Path(args.output), extra_info=extra)
