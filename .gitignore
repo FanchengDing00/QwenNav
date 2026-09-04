@@ -21,6 +21,7 @@ logs/
 /output/
 /data/
 /checkpoints/
+/experiments/active_observation_gate/output/
 
 # editor / OS
 .DS_Store
