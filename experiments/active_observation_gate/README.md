@@ -177,3 +177,9 @@ The two models run from separate Python environments. By default, LightNav uses
 PyTorch/CUDA stack and FlashAttention 2; it does not import or modify LightNav's
 environment. These paths can be overridden independently with `LIGHTNAV_PYTHON`
 and `GATE_PYTHON`.
+
+For a server installation that keeps all three prefix environments under the
+repository's `conda_envs/` directory, follow
+[INSTALL_CONDA_ENVS.md](INSTALL_CONDA_ENVS.md). The guide covers the LightNav,
+Habitat, and frozen Qwen3-VL Gate environments and shows the launcher overrides
+needed for repository-local environments.

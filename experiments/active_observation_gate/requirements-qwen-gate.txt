@@ -1,0 +1,14 @@
+# Qwen3-VL-4B-Instruct Gate environment (Python 3.10, CUDA 12.4).
+# FlashAttention must be installed separately with --no-build-isolation;
+# see INSTALL_CONDA_ENVS.md.
+--extra-index-url https://download.pytorch.org/whl/cu124
+
+torch==2.6.0+cu124
+torchvision==0.21.0+cu124
+transformers==4.57.1
+safetensors==0.8.0
+numpy==1.26.4
+pillow==10.4.0
+opencv-python==4.11.0.86
+packaging>=24.0
+ninja>=1.11

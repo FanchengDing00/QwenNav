@@ -10,6 +10,7 @@ dist/
 # virtual envs
 .venv/
 .venv-*/
+/conda_envs/
 
 # runtime state written by scripts/start_servers.sh
 .servers_ready/
